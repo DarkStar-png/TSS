@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Інтерактивні Шахи для Двох</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chess.js Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617;
+            color: #f8fafc;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            aspect-ratio: 1 / 1;
+        }
+
+        .tile-light {
+            background-color: #e2e8f0;
+            color: #1e293b;
+        }
+
+        .tile-dark {
+            background-color: #2563eb;
+            color: #ffffff;
+        }
+
+        .tile-selected {
+            background-color: #38bdf8 !important;
+        }
+
+        .tile-last-move {
+            background-color: #f59e0b88 !important;
+        }
+
+        .tile-check {
+            background-color: #ef4444 !important;
+            animation: pulse 1.5s infinite;
+        }
+
+        .move-hint {
+            position: relative;
+        }
+
+        .move-hint::after {
+            content: '';
+            position: absolute;
+            width: 26%;
+            height: 26%;
+            background-color: rgba(16, 185, 129, 0.7);
+            border-radius: 50%;
+            top: 37%;
+            left: 37%;
+            pointer-events: none;
+        }
+
+        .capture-hint::after {
+            content: '';
+            position: absolute;
+            width: 84%;
+            height: 84%;
+            border: 4px solid rgba(239, 68, 68, 0.75);
+            border-radius: 50%;
+            top: 8%;
+            left: 8%;
+            pointer-events: none;
+        }
+
+        .piece-symbol {
+            font-size: clamp(2rem, 6.5vw, 3.2rem);
+            line-height: 1;
+            cursor: grab;
+            transition: transform 0.1s ease, filter 0.1s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            user-select: none;
+        }
+
+        .piece-symbol:active {
+            cursor: grabbing;
+            transform: scale(1.15);
+        }
+
+        .piece-white {
+            color: #ffffff;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.9);
+        }
+
+        .piece-black {
+            color: #090d16;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4), 0 0 1px rgba(255, 255, 255, 0.6);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b82f6;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #60a5fa;
+        }
+
+        @keyframes toast-slide {
+            0% { transform: translateY(-15px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+
+        .toast-animate {
+            animation: toast-slide 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-3 md:p-6 bg-slate-950 text-slate-100">
+
+    <!-- Header Controls -->
+    <header class="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 mb-4 bg-slate-900/80 p-4 rounded-2xl border border-slate-800 shadow-xl backdrop-blur-md">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 p-3 rounded-xl text-white shadow-lg shadow-blue-600/30">
+                <i class="fa-solid fa-chess-king text-2xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                    Шахи для Двох
+                </h1>
+                <p class="text-xs text-slate-400">Грайте за одним пристроєм по черзі</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Sound Toggle -->
+            <button id="soundToggleBtn" class="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-xl transition-all border border-slate-700 active:scale-95">
+                <i id="soundIcon" class="fa-solid fa-volume-high text-blue-400"></i>
+                <span class="hidden sm:inline text-sm">Звук</span>
+            </button>
+
+            <!-- Undo Move -->
+            <button id="undoBtn" class="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-xl transition-all border border-slate-700 active:scale-95">
+                <i class="fa-solid fa-rotate-left text-amber-400"></i>
+                <span class="text-sm">Крок назад</span>
+            </button>
+
+            <!-- Reset Game -->
+            <button id="restartBtn" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95">
+                <i class="fa-solid fa-arrows-rotate"></i>
+                <span class="text-sm">Нова гра</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-1">
+        
+        <!-- Left/Center: Chessboard Area -->
+        <section class="lg:col-span-8 flex flex-col items-center justify-center gap-3">
+            
+            <!-- Warning Toast Notification Container -->
+            <div id="toastContainer" class="w-full max-w-lg min-h-[44px] flex items-center justify-center">
+                <div id="warningToast" class="hidden toast-animate bg-amber-500/20 border border-amber-500/50 text-amber-200 text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base"></i>
+                    <span id="warningText">Неприпустимий хід!</span>
+                </div>
+            </div>
+
+            <!-- Top Player (Black Info) -->
+            <div class="w-full max-w-[560px] bg-slate-900/90 border border-slate-800 p-3 rounded-2xl flex items-center justify-between shadow-md">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-white font-bold shadow-inner">
+                        <i class="fa-solid fa-user text-slate-400"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-slate-100 text-sm sm:text-base">Гравець 2 (Чорні)</span>
+                            <span id="blackTurnBadge" class="hidden px-2 py-0.5 text-xs bg-blue-500/20 border border-blue-500/40 text-blue-300 font-semibold rounded-full">Хід</span>
+                        </div>
+                        <div id="blackCaptured" class="flex flex-wrap gap-1 mt-0.5 min-h-[20px] text-lg text-slate-300"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chessboard Wrapper -->
+            <div class="relative w-full max-w-[560px] p-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+                <!-- Board Grid -->
+                <div id="chessboard" class="board-grid w-full rounded-xl overflow-hidden shadow-inner border border-slate-700/50">
+                    <!-- Squares generated via JS -->
+                </div>
+            </div>
+
+            <!-- Bottom Player (White Info) -->
+            <div class="w-full max-w-[560px] bg-slate-900/90 border border-slate-800 p-3 rounded-2xl flex items-center justify-between shadow-md">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-slate-100 border border-slate-300 flex items-center justify-center text-slate-900 font-bold shadow-inner">
+                        <i class="fa-solid fa-user text-slate-700"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-slate-100 text-sm sm:text-base">Гравець 1 (Білі)</span>
+                            <span id="whiteTurnBadge" class="px-2 py-0.5 text-xs bg-blue-500/20 border border-blue-500/40 text-blue-300 font-semibold rounded-full">Хід</span>
+                        </div>
+                        <div id="whiteCaptured" class="flex flex-wrap gap-1 mt-0.5 min-h-[20px] text-lg text-slate-300"></div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Right: Move History & Controls -->
+        <aside class="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col h-full max-h-[640px] shadow-xl">
+            <!-- Panel Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-list-ol text-blue-400 text-lg"></i>
+                    <h2 class="font-bold text-lg text-white">Історія ходів</h2>
+                </div>
+                <span id="moveCountBadge" class="px-2.5 py-1 text-xs bg-slate-800 border border-slate-700 text-slate-300 font-medium rounded-lg">
+                    Ходів: 0
+                </span>
+            </div>
+
+            <!-- Status Banner -->
+            <div id="gameStatusBanner" class="mb-3 p-3 bg-blue-950/50 border border-blue-800/50 rounded-xl text-xs sm:text-sm text-blue-200 flex items-center gap-2">
+                <i class="fa-solid fa-circle-info text-blue-400 text-base"></i>
+                <span id="statusText">Гра розпочата. Хід Білих.</span>
+            </div>
+
+            <!-- Table Header -->
+            <div class="grid grid-cols-12 text-xs font-semibold text-slate-400 px-3 py-1.5 bg-slate-950/50 rounded-lg mb-2">
+                <span class="col-span-2">#</span>
+                <span class="col-span-5 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-slate-100"></span> Білі
+                </span>
+                <span class="col-span-5 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-slate-800 border border-slate-600"></span> Чорні
+                </span>
+            </div>
+
+            <!-- Move List Container -->
+            <div id="historyList" class="flex-1 overflow-y-auto pr-1 space-y-1 text-sm font-mono">
+                <div class="text-center text-slate-500 py-8 text-xs font-sans">Ходів ще не зроблено</div>
+            </div>
+
+            <!-- Additional Actions -->
+            <div class="pt-4 mt-3 border-t border-slate-800 grid grid-cols-2 gap-2">
+                <button id="drawBtn" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium rounded-xl transition-all active:scale-95">
+                    <i class="fa-solid fa-handshake mr-1.5 text-blue-400"></i>Нічия
+                </button>
+                <button id="resignBtn" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium rounded-xl transition-all active:scale-95">
+                    <i class="fa-solid fa-flag mr-1.5 text-rose-400"></i>Здатися
+                </button>
+            </div>
+        </aside>
+
+    </main>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
+            <div class="w-12 h-12 bg-blue-600/20 text-blue-400 rounded-xl flex items-center justify-center mx-auto mb-3 text-2xl">
+                <i id="confirmIcon" class="fa-solid fa-circle-question"></i>
+            </div>
+            <h3 id="confirmTitle" class="text-xl font-bold text-white mb-2">Підтвердження</h3>
+            <p id="confirmMessage" class="text-sm text-slate-300 mb-6">Ви дійсно бажаєте виконати цю дію?</p>
+            <div class="flex gap-3 justify-center">
+                <button id="confirmCancelBtn" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl border border-slate-700 transition-all">
+                    Скасувати
+                </button>
+                <button id="confirmActionBtn" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                    Підтвердити
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pawn Promotion Modal -->
+    <div id="promotionModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
+            <h3 class="text-xl font-bold text-white mb-2">Перетворення пішака</h3>
+            <p class="text-xs text-slate-400 mb-6">Оберіть фігуру для перетворення:</p>
+            <div id="promotionOptions" class="grid grid-cols-4 gap-3">
+                <!-- Promotion options dynamically inserted -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="gameOverModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl max-w-md w-full text-center transform transition-all">
+            <div class="w-16 h-16 bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+                <i id="gameOverIcon" class="fa-solid fa-trophy"></i>
+            </div>
+            <h2 id="gameOverTitle" class="text-2xl sm:text-3xl font-extrabold text-white mb-2">Шах і Мат!</h2>
+            <p id="gameOverMessage" class="text-slate-300 text-sm sm:text-base mb-6">Білі перемогли у цій партії!</p>
+            
+            <div class="flex gap-3 justify-center">
+                <button id="closeGameOverBtn" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-xl border border-slate-700 transition-all">
+                    Переглянути дошку
+                </button>
+                <button id="modalRestartBtn" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                    Нова гра
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Synthesizer Audio Engine using Web Audio API
+        class SoundEngine {
+            constructor() {
+                this.enabled = true;
+                this.ctx = null;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        this.ctx = new AudioCtx();
+                    }
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            playTone(freq, duration, type = 'sine', volume = 0.15) {
+                if (!this.enabled) return;
+                try {
+                    this.init();
+                    if (!this.ctx) return;
+
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+
+                    gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {
+                    console.warn("Audio Context playback error:", e);
+                }
+            }
+
+            playMove() {
+                this.playTone(420, 0.08, 'sine', 0.12);
+            }
+
+            playCapture() {
+                this.playTone(220, 0.12, 'triangle', 0.25);
+            }
+
+            playCheck() {
+                this.playTone(580, 0.2, 'sawtooth', 0.15);
+            }
+
+            playError() {
+                this.playTone(140, 0.22, 'sawtooth', 0.2);
+            }
+
+            playGameOver() {
+                if (!this.enabled) return;
+                const freqs = [300, 400, 500, 600];
+                freqs.forEach((f, index) => {
+                    setTimeout(() => this.playTone(f, 0.15, 'sine', 0.2), index * 90);
+                });
+            }
+        }
+
+        const soundEngine = new SoundEngine();
+
+        let game = new Chess();
+        let selectedSquare = null;
+        let legalMoves = [];
+        let pendingPromotion = null;
+        let warningTimeout = null;
+        let pendingAction = null;
+
+        const UNICODE_PIECES = {
+            'wK': '♔', 'wQ': '♕', 'wR': '♖', 'wB': '♗', 'wN': '♘', 'wP': '♙',
+            'bK': '♚', 'bQ': '♛', 'bR': '♜', 'bB': '♝', 'bN': '♞', 'bP': '♟'
+        };
+
+        const PIECE_NAMES_UA = {
+            'p': 'Пішак',
+            'r': 'Тура',
+            'n': 'Кінь',
+            'b': 'Слон',
+            'q': 'Ферзь',
+            'k': 'Король'
+        };
+
+        function createBoard() {
+            const boardEl = document.getElementById('chessboard');
+            if (!boardEl) return;
+
+            boardEl.innerHTML = '';
+            const boardState = game.board();
+            const history = game.history({ verbose: true });
+            const lastMove = history.length > 0 ? history[history.length - 1] : null;
+
+            // Find King in Check
+            let kingInCheckSquare = null;
+            if (game.in_check()) {
+                const turn = game.turn();
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const p = boardState[r][c];
+                        if (p && p.type === 'k' && p.color === turn) {
+                            kingInCheckSquare = String.fromCharCode(97 + c) + (8 - r);
+                        }
+                    }
+                }
+            }
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const squareSquare = String.fromCharCode(97 + c) + (8 - r);
+                    const isDark = (r + c) % 2 === 1;
+                    const piece = boardState[r][c];
+
+                    const tile = document.createElement('div');
+                    tile.dataset.square = squareSquare;
+                    tile.className = `relative flex items-center justify-center font-semibold text-xs select-none ${
+                        isDark ? 'tile-dark' : 'tile-light'
+                    }`;
+
+                    // Tile Highlights
+                    if (selectedSquare === squareSquare) {
+                        tile.classList.add('tile-selected');
+                    } else if (lastMove && (lastMove.from === squareSquare || lastMove.to === squareSquare)) {
+                        tile.classList.add('tile-last-move');
+                    }
+
+                    if (kingInCheckSquare === squareSquare) {
+                        tile.classList.add('tile-check');
+                    }
+
+                    // Legal Move Hints
+                    const moveTarget = legalMoves.find(m => m.to === squareSquare);
+                    if (moveTarget) {
+                        if (piece) {
+                            tile.classList.add('capture-hint');
+                        } else {
+                            tile.classList.add('move-hint');
+                        }
+                    }
+
+                    // Rank & File Coordinates
+                    if (c === 0) {
+                        const rankLabel = document.createElement('span');
+                        rankLabel.className = `absolute top-0.5 left-1 text-[10px] opacity-70 ${isDark ? 'text-slate-200' : 'text-slate-700'}`;
+                        rankLabel.innerText = 8 - r;
+                        tile.appendChild(rankLabel);
+                    }
+                    if (r === 7) {
+                        const fileLabel = document.createElement('span');
+                        fileLabel.className = `absolute bottom-0.5 right-1 text-[10px] opacity-70 ${isDark ? 'text-slate-200' : 'text-slate-700'}`;
+                        fileLabel.innerText = String.fromCharCode(97 + c);
+                        tile.appendChild(fileLabel);
+                    }
+
+                    // Render Piece Symbol
+                    if (piece) {
+                        const pieceEl = document.createElement('div');
+                        const key = piece.color + piece.type.toUpperCase();
+                        pieceEl.innerText = UNICODE_PIECES[key] || '';
+                        pieceEl.className = `piece-symbol ${piece.color === 'w' ? 'piece-white' : 'piece-black'}`;
+                        pieceEl.draggable = true;
+                        pieceEl.title = `${piece.color === 'w' ? 'Білий' : 'Чорний'} ${PIECE_NAMES_UA[piece.type]}`;
+
+                        pieceEl.addEventListener('dragstart', (e) => handleDragStart(e, squareSquare));
+                        tile.appendChild(pieceEl);
+                    }
+
+                    // Tile Events
+                    tile.addEventListener('dragover', (e) => e.preventDefault());
+                    tile.addEventListener('drop', (e) => handleDrop(e, squareSquare));
+                    tile.addEventListener('click', () => handleSquareClick(squareSquare));
+
+                    boardEl.appendChild(tile);
+                }
+            }
+
+            updateUI();
+        }
+
+        function handleSquareClick(square) {
+            const piece = game.get(square);
+            const currentTurn = game.turn();
+
+            if (selectedSquare) {
+                if (selectedSquare === square) {
+                    selectedSquare = null;
+                    legalMoves = [];
+                    createBoard();
+                    return;
+                }
+
+                const isLegal = legalMoves.some(m => m.to === square);
+
+                if (isLegal) {
+                    executeMove(selectedSquare, square);
+                    selectedSquare = null;
+                    legalMoves = [];
+                    return;
+                } else {
+                    if (piece && piece.color === currentTurn) {
+                        selectSquare(square);
+                        return;
+                    } else {
+                        showWarning("Неприпустимий хід за правилами шахів!");
+                        soundEngine.playError();
+                        selectedSquare = null;
+                        legalMoves = [];
+                        createBoard();
+                        return;
+                    }
+                }
+            }
+
+            if (piece) {
+                if (piece.color === currentTurn) {
+                    selectSquare(square);
+                } else {
+                    showWarning(`Зараз хід ${currentTurn === 'w' ? 'Білих' : 'Чорних'}!`);
+                    soundEngine.playError();
+                }
+            }
+        }
+
+        function selectSquare(square) {
+            selectedSquare = square;
+            legalMoves = game.moves({ square: square, verbose: true });
+            createBoard();
+        }
+
+        function handleDragStart(e, square) {
+            const piece = game.get(square);
+            if (piece && piece.color === game.turn()) {
+                selectedSquare = square;
+                legalMoves = game.moves({ square: square, verbose: true });
+                e.dataTransfer.setData('text/plain', square);
+                createBoard();
+            } else {
+                e.preventDefault();
+                showWarning(`Зараз хід ${game.turn() === 'w' ? 'Білих' : 'Чорних'}!`);
+                soundEngine.playError();
+            }
+        }
+
+        function handleDrop(e, targetSquare) {
+            e.preventDefault();
+            const fromSquare = e.dataTransfer.getData('text/plain');
+            if (!fromSquare) return;
+
+            const isLegal = legalMoves.some(m => m.to === targetSquare);
+
+            if (isLegal) {
+                executeMove(fromSquare, targetSquare);
+            } else {
+                showWarning("Неприпустимий хід за правилами шахів!");
+                soundEngine.playError();
+            }
+
+            selectedSquare = null;
+            legalMoves = [];
+            createBoard();
+        }
+
+        function executeMove(from, to, promotionPiece = null) {
+            const piece = game.get(from);
+            if (piece && piece.type === 'p') {
+                if ((piece.color === 'w' && to[1] === '8') || (piece.color === 'b' && to[1] === '1')) {
+                    if (!promotionPiece) {
+                        pendingPromotion = { from, to };
+                        openPromotionModal(piece.color);
+                        return;
+                    }
+                }
+            }
+
+            const isCapture = game.get(to) !== null;
+            const move = game.move({
+                from: from,
+                to: to,
+                promotion: promotionPiece || 'q'
+            });
+
+            if (move === null) {
+                showWarning("Неприпустимий хід!");
+                soundEngine.playError();
+                return;
+            }
+
+            if (game.in_check()) {
+                soundEngine.playCheck();
+            } else if (isCapture) {
+                soundEngine.playCapture();
+            } else {
+                soundEngine.playMove();
+            }
+
+            createBoard();
+            checkGameEndConditions();
+        }
+
+        function openPromotionModal(color) {
+            const modal = document.getElementById('promotionModal');
+            const optionsContainer = document.getElementById('promotionOptions');
+            optionsContainer.innerHTML = '';
+
+            const pieces = [
+                { type: 'q', name: 'Ферзь', symbol: UNICODE_PIECES[color + 'Q'] },
+                { type: 'r', name: 'Тура', symbol: UNICODE_PIECES[color + 'R'] },
+                { type: 'b', name: 'Слон', symbol: UNICODE_PIECES[color + 'B'] },
+                { type: 'n', name: 'Кінь', symbol: UNICODE_PIECES[color + 'N'] }
+            ];
+
+            pieces.forEach(p => {
+                const btn = document.createElement('button');
+                btn.className = 'flex flex-col items-center justify-center p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all active:scale-95';
+                btn.innerHTML = `
+                    <span class="text-3xl mb-1 ${color === 'w' ? 'piece-white' : 'piece-black'}">${p.symbol}</span>
+                    <span class="text-xs text-slate-300 font-medium">${p.name}</span>
+                `;
+                btn.onclick = () => {
+                    modal.classList.add('hidden');
+                    if (pendingPromotion) {
+                        executeMove(pendingPromotion.from, pendingPromotion.to, p.type);
+                        pendingPromotion = null;
+                    }
+                };
+                optionsContainer.appendChild(btn);
+            });
+
+            modal.classList.remove('hidden');
+        }
+
+        function updateUI() {
+            const turn = game.turn();
+
+            const whiteBadge = document.getElementById('whiteTurnBadge');
+            const blackBadge = document.getElementById('blackTurnBadge');
+            if (whiteBadge) whiteBadge.classList.toggle('hidden', turn !== 'w');
+            if (blackBadge) blackBadge.classList.toggle('hidden', turn !== 'b');
+
+            renderHistory();
+            renderCapturedPieces();
+
+            const statusEl = document.getElementById('statusText');
+            if (statusEl) {
+                if (game.in_checkmate()) {
+                    statusEl.innerText = `Шах і мат! Перемогли ${turn === 'w' ? 'Чорні' : 'Білі'}.`;
+                } else if (game.in_draw()) {
+                    statusEl.innerText = 'Нічия!';
+                } else if (game.in_check()) {
+                    statusEl.innerText = `УВАГА: Шах ${turn === 'w' ? 'Білому' : 'Чорному'} королю!`;
+                } else {
+                    statusEl.innerText = `Хід ${turn === 'w' ? 'Білих' : 'Чорних'}.`;
+                }
+            }
+        }
+
+        function renderHistory() {
+            const historyList = document.getElementById('historyList');
+            const moveBadge = document.getElementById('moveCountBadge');
+            if (!historyList) return;
+
+            const history = game.history({ verbose: true });
+            if (moveBadge) moveBadge.innerText = `Ходів: ${history.length}`;
+
+            if (history.length === 0) {
+                historyList.innerHTML = '<div class="text-center text-slate-500 py-8 text-xs font-sans">Ходів ще не зроблено</div>';
+                return;
+            }
+
+            let html = '';
+            for (let i = 0; i < history.length; i += 2) {
+                const moveNum = Math.floor(i / 2) + 1;
+                const whiteMove = history[i] ? history[i].san : '';
+                const blackMove = history[i + 1] ? history[i + 1].san : '';
+
+                html += `
+                    <div class="grid grid-cols-12 px-3 py-1.5 rounded-lg ${moveNum % 2 === 0 ? 'bg-slate-950/40' : 'bg-slate-800/30'} items-center text-xs">
+                        <span class="col-span-2 text-slate-500 font-bold">${moveNum}.</span>
+                        <span class="col-span-5 text-slate-200 font-semibold">${whiteMove}</span>
+                        <span class="col-span-5 text-slate-400 font-semibold">${blackMove}</span>
+                    </div>
+                `;
+            }
+
+            historyList.innerHTML = html;
+            historyList.scrollTop = historyList.scrollHeight;
+        }
+
+        function renderCapturedPieces() {
+            const history = game.history({ verbose: true });
+            const capturedByWhite = [];
+            const capturedByBlack = [];
+
+            history.forEach(m => {
+                if (m.captured) {
+                    if (m.color === 'w') {
+                        capturedByWhite.push(m.captured);
+                    } else {
+                        capturedByBlack.push(m.captured);
+                    }
+                }
+            });
+
+            const formatCaptured = (list, color) => {
+                return list.map(p => {
+                    const symbol = UNICODE_PIECES[color + p.toUpperCase()];
+                    const colorClass = color === 'w' ? 'piece-white' : 'piece-black';
+                    return `<span class="text-lg inline-block mx-0.5 ${colorClass}">${symbol}</span>`;
+                }).join('');
+            };
+
+            const wCapEl = document.getElementById('whiteCaptured');
+            const bCapEl = document.getElementById('blackCaptured');
+            if (wCapEl) wCapEl.innerHTML = formatCaptured(capturedByWhite, 'b');
+            if (bCapEl) bCapEl.innerHTML = formatCaptured(capturedByBlack, 'w');
+        }
+
+        function showWarning(msg) {
+            const toast = document.getElementById('warningToast');
+            const text = document.getElementById('warningText');
+
+            if (!toast || !text) return;
+            text.innerText = msg;
+            toast.classList.remove('hidden');
+
+            if (warningTimeout) clearTimeout(warningTimeout);
+            warningTimeout = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        function checkGameEndConditions() {
+            if (game.in_checkmate()) {
+                const winner = game.turn() === 'w' ? 'Чорні' : 'Білі';
+                showGameOverModal('Шах і Мат!', `Вітаємо! ${winner} здобули перемогу.`);
+                soundEngine.playGameOver();
+            } else if (game.in_draw()) {
+                let reason = 'Нічия!';
+                if (game.in_stalemate()) reason = 'Нічия (Пат)! Немає можливих ходів.';
+                else if (game.in_threefold_repetition()) reason = 'Нічия (Триразове повторення).';
+                else if (game.insufficient_material()) reason = 'Нічия (Недостатньо фігур для мату).';
+
+                showGameOverModal('Нічия!', reason);
+                soundEngine.playGameOver();
+            }
+        }
+
+        function openConfirmModal(title, message, iconClass, actionFn) {
+            document.getElementById('confirmTitle').innerText = title;
+            document.getElementById('confirmMessage').innerText = message;
+            document.getElementById('confirmIcon').className = iconClass || 'fa-solid fa-circle-question';
+            pendingAction = actionFn;
+            document.getElementById('confirmModal').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            pendingAction = null;
+        }
+
+        function executeConfirmedAction() {
+            if (pendingAction) {
+                const actionToRun = pendingAction;
+                closeConfirmModal();
+                actionToRun();
+            }
+        }
+
+        function showGameOverModal(title, msg, iconClass = 'fa-solid fa-trophy') {
+            document.getElementById('gameOverTitle').innerText = title;
+            document.getElementById('gameOverMessage').innerText = msg;
+            document.getElementById('gameOverIcon').className = iconClass;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        function closeGameOverModal() {
+            document.getElementById('gameOverModal').classList.add('hidden');
+        }
+
+        function toggleSound() {
+            soundEngine.enabled = !soundEngine.enabled;
+            const icon = document.getElementById('soundIcon');
+            if (icon) {
+                icon.className = soundEngine.enabled ? 'fa-solid fa-volume-high text-blue-400' : 'fa-solid fa-volume-xmark text-slate-500';
+            }
+        }
+
+        function undoLastMove() {
+            const move1 = game.undo();
+            if (move1) {
+                selectedSquare = null;
+                legalMoves = [];
+                createBoard();
+                soundEngine.playMove();
+            } else {
+                showWarning("Немає ходів для скасування!");
+            }
+        }
+
+        function offerDraw() {
+            openConfirmModal(
+                'Пропозиція нічиєї',
+                'Ви впевнені, що хочете запропонувати нічию супернику?',
+                'fa-solid fa-handshake text-blue-400',
+                () => {
+                    showGameOverModal('Гра завершена!', 'Гра завершена: оголошено нічию за згодою гравців.', 'fa-solid fa-handshake');
+                    soundEngine.playGameOver();
+                }
+            );
+        }
+
+        function resignGame() {
+            const currentTurnName = game.turn() === 'w' ? 'Білі' : 'Чорні';
+            const winnerName = game.turn() === 'w' ? 'Чорні' : 'Білі';
+
+            openConfirmModal(
+                'Здатись у партії',
+                `Гравець (${currentTurnName}) бажає здатися?`,
+                'fa-solid fa-flag text-rose-400',
+                () => {
+                    showGameOverModal('Гравець здався!', `${currentTurnName} капітулювали. Перемога суперника (${winnerName})!`, 'fa-solid fa-flag-checkered');
+                    soundEngine.playGameOver();
+                }
+            );
+        }
+
+        function confirmRestart() {
+            if (game.history().length > 0) {
+                openConfirmModal(
+                    'Нова гра',
+                    'Розпочати нову гру? Поточна партія та історія ходів будуть повністю скинуті.',
+                    'fa-solid fa-arrows-rotate text-blue-400',
+                    () => restartGame()
+                );
+            } else {
+                restartGame();
+            }
+        }
+
+        function restartGame() {
+            game = new Chess();
+            selectedSquare = null;
+            legalMoves = [];
+            pendingPromotion = null;
+            closeConfirmModal();
+            closeGameOverModal();
+            createBoard();
+            soundEngine.playMove();
+        }
+
+        window.onload = function() {
+            document.getElementById('soundToggleBtn')?.addEventListener('click', toggleSound);
+            document.getElementById('undoBtn')?.addEventListener('click', undoLastMove);
+            document.getElementById('restartBtn')?.addEventListener('click', confirmRestart);
+            document.getElementById('drawBtn')?.addEventListener('click', offerDraw);
+            document.getElementById('resignBtn')?.addEventListener('click', resignGame);
+
+            document.getElementById('confirmCancelBtn')?.addEventListener('click', closeConfirmModal);
+            document.getElementById('confirmActionBtn')?.addEventListener('click', executeConfirmedAction);
+            document.getElementById('closeGameOverBtn')?.addEventListener('click', closeGameOverModal);
+            document.getElementById('modalRestartBtn')?.addEventListener('click', restartGame);
+
+            createBoard();
+        };
+    </script>
+</body>
+</html>
